@@ -1,0 +1,181 @@
+'use client'
+
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { Download, FileText, ChevronDown, Pen, Globe, Building2, CheckCircle2 } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { RiskBadge } from '@/components/ui/Badge'
+import { useAuthStore, useAppStore } from '@/lib/store'
+import type { ContractDetail } from '@/lib/types'
+import { useState } from 'react'
+
+interface NavbarProps {
+  contract?: ContractDetail | null
+}
+
+/** Compact CRI circular gauge for navbar */
+function CRIGauge({ score, level }: { score: number; level: string }) {
+  const clampedScore = Math.min(100, Math.max(0, score))
+  const radius = 18
+  const circumference = 2 * Math.PI * radius
+  const strokeDashoffset = circumference - (clampedScore / 100) * circumference
+  const color = level === 'high' ? '#FF4444' : level === 'moderate' ? '#FF8C00' : '#00D084'
+
+  return (
+    <div className="relative flex items-center justify-center w-12 h-12" title={`CRI: ${score.toFixed(0)}/100`}>
+      <svg width="48" height="48" viewBox="0 0 48 48" className="-rotate-90">
+        <circle cx="24" cy="24" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="4" />
+        <circle
+          cx="24" cy="24" r={radius} fill="none"
+          stroke={color} strokeWidth="4"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+        />
+      </svg>
+      <span className="absolute text-[10px] font-mono font-bold" style={{ color }}>
+        {clampedScore.toFixed(0)}
+      </span>
+    </div>
+  )
+}
+
+export default function Navbar({ contract }: NavbarProps) {
+  const router = useRouter()
+  const user = useAuthStore((s) => s.user)
+  const [exportOpen, setExportOpen] = useState(false)
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+  const handleExportPdf = () => {
+    if (contract) {
+      const token = localStorage.getItem('lexguard_token')
+      window.open(`${API_URL}/api/export/pdf/${contract.id}?token=${encodeURIComponent(token || '')}`, '_blank')
+    }
+    setExportOpen(false)
+  }
+
+  const handleExportDocx = () => {
+    if (contract) {
+      const token = localStorage.getItem('lexguard_token')
+      window.open(`${API_URL}/api/export/docx/${contract.id}?token=${encodeURIComponent(token || '')}`, '_blank')
+    }
+    setExportOpen(false)
+  }
+
+  const handleESign = () => {
+    alert('E-Sign integration: Connect DocuSign or HelloSign API to enable one-click signing workflows.')
+    setExportOpen(false)
+  }
+
+  return (
+    <header className="fixed top-0 left-0 right-0 z-50 h-14 glass border-b border-white/[0.06]">
+      <div className="h-full flex items-center justify-between px-4 gap-4">
+        {/* Left: Logo + contract breadcrumb */}
+        <div className="flex items-center gap-3 flex-shrink-0 min-w-0">
+          <Link href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0">
+            <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+              <path d="M16 2L4 7v9c0 7 5.4 13.5 12 15 6.6-1.5 12-8 12-15V7L16 2z"
+                fill="#E8C547" fillOpacity="0.15" stroke="#E8C547" strokeWidth="1.5" />
+              <path d="M11 16l3 3 7-7" stroke="#E8C547" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <span className="font-display text-base tracking-wide hidden sm:block">LEXGUARD</span>
+          </Link>
+
+          {contract && (
+            <>
+              <span className="text-text-muted hidden sm:block">/</span>
+              <span className="text-text-secondary text-sm truncate max-w-36 hidden sm:block">
+                {contract.original_filename}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Center: Active metadata HUD */}
+        {contract?.status === 'complete' && (
+          <div className="flex items-center gap-3 flex-1 justify-center min-w-0">
+            {contract.contract_type && (
+              <span className="text-xs bg-bg-elevated border border-white/[0.08] rounded-full px-2.5 py-0.5 text-text-secondary hidden md:block">
+                {contract.contract_type}
+              </span>
+            )}
+            {contract.counterparty && (
+              <div className="hidden lg:flex items-center gap-1 text-xs text-text-muted">
+                <Building2 className="w-3 h-3" />
+                <span className="truncate max-w-28">{contract.counterparty}</span>
+              </div>
+            )}
+            {contract.jurisdiction && (
+              <div className="hidden lg:flex items-center gap-1 text-xs text-text-muted">
+                <Globe className="w-3 h-3" />
+                <span className="truncate max-w-24">{contract.jurisdiction}</span>
+              </div>
+            )}
+            <div className="hidden sm:flex items-center gap-1.5">
+              <CheckCircle2 className="w-3 h-3 text-safe" />
+              <span className="text-xs text-text-secondary font-mono">Analysis Complete</span>
+            </div>
+          </div>
+        )}
+
+        {contract?.status === 'processing' && (
+          <div className="flex items-center gap-1.5 flex-1 justify-center">
+            <span className="w-1.5 h-1.5 bg-gold rounded-full animate-pulse" />
+            <span className="text-xs text-text-secondary font-mono">Analyzing pipeline...</span>
+          </div>
+        )}
+
+        {/* Right: CRI Gauge + Export */}
+        <div className="flex items-center gap-2.5 flex-shrink-0">
+          {contract?.status === 'complete' && (
+            <>
+              {/* CRI circular gauge */}
+              <CRIGauge score={contract.aggregate_risk_index ?? 0} level={contract.risk_level} />
+              <RiskBadge level={contract.risk_level} size="sm" pulse={contract.risk_level === 'high'} />
+
+              {/* Export Action Group */}
+              <div className="relative">
+                <button
+                  onClick={() => setExportOpen(!exportOpen)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-elevated border border-white/[0.08] hover:border-white/20 rounded-lg text-sm text-text-secondary hover:text-text-primary transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:block">Export</span>
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                {exportOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 bg-bg-overlay border border-white/[0.08] rounded-lg py-1 min-w-44 z-50 shadow-xl">
+                      <button onClick={handleExportDocx} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2">
+                        <FileText className="w-3.5 h-3.5 text-warning" />
+                        Export Redlines (DOCX)
+                      </button>
+                      <button onClick={handleExportPdf} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2">
+                        <FileText className="w-3.5 h-3.5 text-safe" />
+                        Risk Report (PDF)
+                      </button>
+                      <div className="border-t border-white/[0.06] my-1" />
+                      <button onClick={handleESign} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2">
+                        <Pen className="w-3.5 h-3.5 text-gold" />
+                        E-Sign Document
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
+          <div className="w-8 h-8 rounded-full bg-gold/20 border border-gold/30 flex items-center justify-center">
+            <span className="text-gold text-sm font-semibold">
+              {user?.full_name?.[0]?.toUpperCase() ?? 'U'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </header>
+  )
+}
+
