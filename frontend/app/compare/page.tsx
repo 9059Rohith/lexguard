@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { GitCompare, Upload, X, FileText, AlertTriangle } from 'lucide-react'
+import { GitCompare, Upload, X, FileText, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { useAuthStore } from '@/lib/store'
 
 const GOLD = '#E8C547'
 
@@ -60,34 +61,45 @@ export default function ComparePage() {
   const [fileA, setFileA] = useState<File | null>(null)
   const [fileB, setFileB] = useState<File | null>(null)
   const [comparing, setComparing] = useState(false)
-  const [result, setResult] = useState<null | { added: string[]; removed: string[]; common: string[] }>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<null | {
+    added: string[]
+    removed: string[]
+    common: string[]
+    risk_delta: string
+    risk_changed: 'increased' | 'decreased' | 'unchanged'
+  }>(null)
 
   const handleCompare = async () => {
     if (!fileA || !fileB) return
     setComparing(true)
-    // Simulate comparison — real implementation would call backend
-    await new Promise((r) => setTimeout(r, 1800))
-    setResult({
-      added: [
-        'Clause 3.2 — Unlimited liability for data breaches added in Version B',
-        'Clause 7.1 — Automatic renewal clause with 90-day notice period added',
-        'Clause 12 — Mandatory arbitration in Delaware jurisdiction added',
-      ],
-      removed: [
-        'Clause 5.4 — Mutual indemnification clause removed from Version B',
-        'Clause 9 — Force majeure provisions removed',
-      ],
-      common: [
-        'Payment terms (Net-30)',
-        'Confidentiality obligations',
-        'IP ownership provisions',
-        'Termination for cause',
-      ],
-    })
-    setComparing(false)
+    setError(null)
+    try {
+      const token =
+        useAuthStore.getState().token || localStorage.getItem('lexguard_token')
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const formData = new FormData()
+      formData.append('file_a', fileA)
+      formData.append('file_b', fileB)
+      const res = await fetch(`${apiUrl}/api/analyze/compare`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.detail || `Server error ${res.status}`)
+      }
+      const data = await res.json()
+      setResult(data)
+    } catch (err: any) {
+      setError(err.message || 'Comparison failed. Please try again.')
+    } finally {
+      setComparing(false)
+    }
   }
 
-  const reset = () => { setFileA(null); setFileB(null); setResult(null) }
+  const reset = () => { setFileA(null); setFileB(null); setResult(null); setError(null) }
 
   return (
     <div className="min-h-screen bg-bg-base text-white p-8">
@@ -118,6 +130,11 @@ export default function ComparePage() {
               <DropZone label="Version B (Revised)" file={fileB} onDrop={setFileB} onClear={() => setFileB(null)} />
             </div>
 
+            {error && (
+              <div className="mb-4 p-4 rounded-xl border border-danger/30 bg-danger/10 text-danger text-sm text-center">
+                {error}
+              </div>
+            )}
             <div className="flex justify-center">
               <button
                 onClick={handleCompare}
@@ -128,7 +145,7 @@ export default function ComparePage() {
                 {comparing ? (
                   <>
                     <div className="w-4 h-4 border-2 border-bg-base/30 border-t-bg-base rounded-full animate-spin" />
-                    Comparing…
+                    Analyzing with AI…
                   </>
                 ) : (
                   <>
@@ -193,16 +210,22 @@ export default function ComparePage() {
             </div>
 
             {/* Summary banner */}
-            <div className="rounded-xl border border-warning/20 bg-warning/5 p-4 flex items-start gap-3 mb-6">
-              <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-warning text-sm font-semibold">Risk Delta Detected</p>
-                <p className="text-white/50 text-xs mt-1">
-                  Version B introduces {result.added.length} new clause{result.added.length !== 1 ? 's' : ''} including unlimited liability exposure.
-                  Review additions carefully before signing.
-                </p>
-              </div>
-            </div>
+            {result.risk_delta && (() => {
+              const isUp = result.risk_changed === 'increased'
+              const isDown = result.risk_changed === 'decreased'
+              const Icon = isUp ? TrendingUp : isDown ? TrendingDown : Minus
+              const color = isUp ? 'danger' : isDown ? 'safe' : 'warning'
+              const label = isUp ? 'Risk Increased in Version B' : isDown ? 'Risk Decreased in Version B' : 'Risk Unchanged'
+              return (
+                <div className={`rounded-xl border border-${color}/20 bg-${color}/5 p-4 flex items-start gap-3 mb-6`}>
+                  <Icon className={`w-5 h-5 text-${color} flex-shrink-0 mt-0.5`} />
+                  <div>
+                    <p className={`text-${color} text-sm font-semibold`}>{label}</p>
+                    <p className="text-white/60 text-xs mt-1 leading-relaxed">{result.risk_delta}</p>
+                  </div>
+                </div>
+              )
+            })()}
 
             <div className="flex justify-center">
               <button

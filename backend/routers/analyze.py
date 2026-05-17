@@ -122,3 +122,97 @@ async def get_analysis_status(
         progress=progress_map.get(contract.status, 0),
         message=message_map.get(contract.status, ""),
     )
+
+
+@router.post("/compare")
+async def compare_contracts(
+    file_a: UploadFile = File(...),
+    file_b: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    AI-powered contract comparison.
+    Parses two uploaded documents then uses Groq LLM to produce clause-level diffs.
+    Returns: added, removed, common clause lists + risk_delta explanation.
+    """
+    from services.parser import DocumentParser
+    from services.groq_client import groq_client
+
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    upload_dir = os.path.realpath(os.path.abspath(settings.UPLOAD_DIR))
+    tmp_paths: list[str] = []
+
+    async def _parse(upload: UploadFile) -> str:
+        ext = os.path.splitext(upload.filename or ".txt")[1].lower()
+        if ext not in {".pdf", ".docx", ".doc", ".txt", ".rtf"}:
+            ext = ".txt"
+        data = await upload.read()
+        max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{upload.filename}' exceeds {settings.MAX_FILE_SIZE_MB}MB limit.",
+            )
+        fname = f"cmp_{uuid.uuid4()}{ext}"
+        fpath = os.path.join(upload_dir, fname)
+        tmp_paths.append(fpath)
+        with open(fpath, "wb") as fh:
+            fh.write(data)
+        parsed = DocumentParser.parse(fpath, upload_dir=upload_dir)
+        return parsed.full_text[:40_000]
+
+    try:
+        text_a, text_b = await asyncio.gather(_parse(file_a), _parse(file_b))
+    finally:
+        for p in tmp_paths:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+    if not text_a.strip() or not text_b.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Could not extract text from one or both documents.",
+        )
+
+    COMPARE_SYSTEM = (
+        "You are a senior contract attorney AI specializing in adversarial contract review.\n"
+        "Compare two contract versions and identify material clause-level differences.\n"
+        "Return ONLY valid JSON — no markdown fences, no extra commentary.\n"
+        "Required JSON structure:\n"
+        "{\n"
+        '  "added": ["Clause X.X — what was added and its legal risk to the signing party"],\n'
+        '  "removed": ["Clause X.X — what was removed and how that hurts the signing party"],\n'
+        '  "common": ["brief description of materially unchanged provision"],\n'
+        '  "risk_delta": "1-2 sentence explanation: is Version B more or less risky overall and why?",\n'
+        '  "risk_changed": "increased" or "decreased" or "unchanged"\n'
+        "}\n"
+        "Rules:\n"
+        "- Each array: 2-6 items\n"
+        "- Be specific — cite section numbers if visible in the text\n"
+        "- Flag as HIGH risk: mandatory arbitration added, liability expanded, broad IP transfer, "
+        "non-compete extended, auto-renewal with short notice, data sharing broadened\n"
+        "- Focus only on material legal changes; ignore whitespace or formatting differences"
+    )
+
+    comparison = await groq_client.complete_json(
+        COMPARE_SYSTEM,
+        f"CONTRACT VERSION A:\n\n{text_a}\n\n{'=' * 60}\n\nCONTRACT VERSION B:\n\n{text_b}",
+        temperature=0.05,
+        max_tokens=2048,
+    )
+
+    if not isinstance(comparison, dict):
+        raise HTTPException(
+            status_code=500,
+            detail="Comparison analysis failed — please retry.",
+        )
+
+    return {
+        "added": comparison.get("added", []),
+        "removed": comparison.get("removed", []),
+        "common": comparison.get("common", []),
+        "risk_delta": comparison.get("risk_delta", ""),
+        "risk_changed": comparison.get("risk_changed", "unchanged"),
+    }
