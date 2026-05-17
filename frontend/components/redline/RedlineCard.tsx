@@ -100,7 +100,6 @@ export function RedlineCard({ clause, contractId }: Props) {
                   wordRemovedBackground: '#FF444440',
                   gutterBackground: '#0A0A0A',
                   gutterBackgroundDark: '#0D0D0D',
-                  lineNumberColor: '#444',
                   codeFoldGutterBackground: '#0F0F0F',
                   codeFoldBackground: '#0F0F0F',
                   emptyLineBackground: '#0F0F0F',
