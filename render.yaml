@@ -4,16 +4,21 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
+    branch: main
     plan: free
+    disk:
+      name: lexguard-data
+      mountPath: /app/data
+      sizeGB: 1
     envVars:
       - key: GROQ_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:///./lexguard.db
+        value: sqlite+aiosqlite:////app/data/lexguard.db
       - key: UPLOAD_DIR
-        value: ./uploads
+        value: /app/data/uploads
       - key: SECRET_KEY
         generateValue: true
       - key: ALGORITHM

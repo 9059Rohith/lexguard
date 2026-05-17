@@ -10,10 +10,13 @@ WORKDIR /app
 # Copy requirements first (layer caching)
 COPY requirements.txt .
 
-# Install Python deps (no torch for lighter build — sentence-transformers uses torch)
+# Install PyTorch CPU-only FIRST (much smaller — ~300MB vs 2GB GPU build)
+RUN pip install --no-cache-dir torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining Python deps
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the sentence-transformers model so it doesn't download at runtime
+# Pre-download the sentence-transformers model so cold start is instant
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Copy application code
@@ -22,11 +25,11 @@ COPY . .
 # Create uploads directory
 RUN mkdir -p uploads
 
-# Expose port
-EXPOSE 8000
-
 # Non-root user for security
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+EXPOSE 8000
+
+# Render injects PORT env var; fall back to 8000 for local Docker
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1
