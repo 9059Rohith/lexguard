@@ -28,13 +28,18 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 - clear auth state and redirect to login
+// Handle 401 - clear auth state and redirect to login (skip auth endpoints)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      useAuthStore.getState().clearAuth()
-      window.location.href = '/login'
+      const url: string = error.config?.url || ''
+      // Don't redirect on the auth endpoints themselves (wrong password returns 401 too)
+      const isAuthEndpoint = url.includes('/api/auth/login') || url.includes('/api/auth/register') || url.includes('/api/auth/me')
+      if (!isAuthEndpoint) {
+        useAuthStore.getState().clearAuth()
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }
