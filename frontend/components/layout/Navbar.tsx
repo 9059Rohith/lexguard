@@ -47,18 +47,41 @@ export default function Navbar({ contract }: NavbarProps) {
   const [exportOpen, setExportOpen] = useState(false)
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+  const downloadFile = async (url: string, filename: string) => {
+    const token = localStorage.getItem('lexguard_token')
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+      const blob = await res.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(href)
+    } catch (e) {
+      alert('Export failed. Please try again.')
+    }
+  }
+
   const handleExportPdf = () => {
     if (contract) {
-      const token = localStorage.getItem('lexguard_token')
-      window.open(`${API_URL}/api/export/pdf/${contract.id}?token=${encodeURIComponent(token || '')}`, '_blank')
+      downloadFile(
+        `${API_URL}/api/export/pdf/${contract.id}`,
+        `${contract.original_filename.replace(/\.[^.]+$/, '')}_risk_report.pdf`
+      )
     }
     setExportOpen(false)
   }
 
   const handleExportDocx = () => {
     if (contract) {
-      const token = localStorage.getItem('lexguard_token')
-      window.open(`${API_URL}/api/export/docx/${contract.id}?token=${encodeURIComponent(token || '')}`, '_blank')
+      downloadFile(
+        `${API_URL}/api/export/docx/${contract.id}`,
+        `${contract.original_filename.replace(/\.[^.]+$/, '')}_redlines.docx`
+      )
     }
     setExportOpen(false)
   }
