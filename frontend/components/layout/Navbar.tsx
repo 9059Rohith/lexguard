@@ -44,25 +44,41 @@ function CRIGauge({ score, level }: { score: number; level: string }) {
 export default function Navbar({ contract }: NavbarProps) {
   const router = useRouter()
   const user = useAuthStore((s) => s.user)
+  const storeToken = useAuthStore((s) => s.token)
   const [exportOpen, setExportOpen] = useState(false)
+  const [downloading, setDownloading] = useState<string | null>(null)
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
   const downloadFile = async (url: string, filename: string) => {
-    const token = localStorage.getItem('lexguard_token')
+    // Use Zustand store token first (always fresh), fall back to localStorage
+    const token = storeToken || (typeof window !== 'undefined' ? localStorage.getItem('lexguard_token') : null)
+    if (!token) {
+      alert('Session expired. Please log in again.')
+      router.push('/login')
+      return
+    }
+    setDownloading(filename)
     try {
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `Export failed (${res.status})`)
+      }
       const blob = await res.blob()
       const href = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = href
       a.download = filename
+      document.body.appendChild(a)
       a.click()
+      document.body.removeChild(a)
       URL.revokeObjectURL(href)
-    } catch (e) {
-      alert('Export failed. Please try again.')
+    } catch (e: any) {
+      alert(`Export failed: ${e.message}`)
+    } finally {
+      setDownloading(null)
     }
   }
 
@@ -171,13 +187,13 @@ export default function Navbar({ contract }: NavbarProps) {
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
                     <div className="absolute right-0 top-full mt-1 bg-bg-overlay border border-white/[0.08] rounded-lg py-1 min-w-44 z-50 shadow-xl">
-                      <button onClick={handleExportDocx} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2">
+                      <button onClick={handleExportDocx} disabled={!!downloading} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2 disabled:opacity-50">
                         <FileText className="w-3.5 h-3.5 text-warning" />
-                        Export Redlines (DOCX)
+                        {downloading?.includes('redlines') ? 'Downloading...' : 'Export Redlines (DOCX)'}
                       </button>
-                      <button onClick={handleExportPdf} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2">
+                      <button onClick={handleExportPdf} disabled={!!downloading} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2 disabled:opacity-50">
                         <FileText className="w-3.5 h-3.5 text-safe" />
-                        Risk Report (PDF)
+                        {downloading?.includes('risk_report') ? 'Downloading...' : 'Risk Report (PDF)'}
                       </button>
                       <div className="border-t border-white/[0.06] my-1" />
                       <button onClick={handleESign} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors flex items-center gap-2">

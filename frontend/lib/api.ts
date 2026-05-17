@@ -9,6 +9,7 @@ import type {
   AuthToken,
   User,
 } from './types'
+import { useAuthStore } from './store'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -16,10 +17,10 @@ const api = axios.create({
   baseURL: API_URL,
 })
 
-// Attach auth token
+// Attach auth token - read from Zustand store (always fresh after hydration)
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('lexguard_token')
+    const token = useAuthStore.getState().token || localStorage.getItem('lexguard_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -27,13 +28,12 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401
+// Handle 401 - clear auth state and redirect to login
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('lexguard_token')
-      localStorage.removeItem('lexguard_user')
+      useAuthStore.getState().clearAuth()
       window.location.href = '/login'
     }
     return Promise.reject(error)
